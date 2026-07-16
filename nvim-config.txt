@@ -1,0 +1,130 @@
+=======================================================================
+ NVIM 개발환경 이식 가이드  (Linux Mint XFCE 서브컴 용)
+ 원본: Fedora 44 / nvim 0.12.4 에서 구축한 설정을 apt 기반 Mint로 옮기기
+ 작성 2026-07-15
+=======================================================================
+
+[0] 이 설정이 주는 것
+  - C/C++ · Go · Java · JS/TS · Lua : LSP(자동완성·진단·정의이동) + 저장 포맷 + 린트
+  - churn 방지: prettier/clang-format 는 프로젝트에 설정파일 있을 때만 포맷
+  - LSP/포맷터 대부분은 첫 실행 때 nvim(mason)이 자동 설치
+  - 네가 직접 깔 건: (1) nvim 본체 (2) 언어 런타임/컴파일러 몇 개
+
+  ★ 순서 중요: [1]nvim → [2]런타임/의존성 → [3]설정복사 → [4]첫 실행
+    (런타임을 먼저 깔아야 mason이 gopls/jdtls/ts_ls 등을 빌드·설치할 수 있음)
+
+  ★ 전제(중요): 이 가이드는 "아무것도 안 깔린 깨끗한 Mint"를 가정하고 전부 설치하는
+    식으로 썼다 — 이미 설치돼 있는 것들은 고려하지 않았다. 이미 있는 건 건너뛰되,
+    아래는 버전을 꼭 확인하고 낮으면 교체할 것 ("없는 것만 깔고, 버전 낮은 것만 올린다"):
+      - nvim   : 0.12 미만이면 반드시 교체 (apt 기본 neovim은 구버전이라 config가 안 돔)
+      - node   : 18 미만이면 NodeSource로 교체 (오래되면 mason npm 도구가 깨짐)
+      - java   : 17 미만이면 교체 (jdtls 구동 안 됨)
+      - go / gcc / cmake / git / python3 : 이미 있으면 그대로 두면 됨
+    (버전 확인 명령은 [2] 맨 아래 참고)
+
+
+[1] Neovim 0.12+ 설치  (필수! apt 버전은 너무 낡아서 안 됨)
+  이 설정은 vim.pack / vim.lsp.config 를 써서 nvim 0.12 이상이 반드시 필요하다.
+  Mint의 `apt install neovim`은 0.9 등 구버전이라 config가 안 돈다.
+
+  공식 최신 릴리스 tarball 설치:
+    cd /tmp
+    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
+    sudo rm -rf /opt/nvim
+    sudo tar -C /opt -xzf nvim-linux-x86_64.tar.gz
+    sudo mv /opt/nvim-linux-x86_64 /opt/nvim
+    sudo ln -sf /opt/nvim/bin/nvim /usr/local/bin/nvim
+    nvim --version        # 0.12 이상인지 확인!
+
+
+[2] 시스템 의존성 (apt) — 컴파일러 / 런타임 / 클립보드
+  sudo apt update
+  sudo apt install -y \
+      build-essential clang clang-format cmake \
+      git curl unzip \
+      python3 python3-venv \
+      default-jdk \
+      xclip
+  # build-essential = gcc/g++/make (treesitter 파서 컴파일에도 필요)
+  # clang-format = C/C++ 포맷터(시스템 바이너리로 사용)
+  # default-jdk  = jdtls/google-java-format 용 (Java 17+ 이어야 함)
+  # xclip        = 시스템 클립보드(y/p) 연동 (XFCE는 X11)
+
+  --- Go (gopls·goimports·golangci-lint 에 필요) ---
+  sudo apt install -y golang-go
+  # apt 버전이 낡았으면 go.dev 최신 tarball 권장:
+  #   cd /tmp; curl -LO https://go.dev/dl/go1.22.5.linux-amd64.tar.gz
+  #   sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
+  #   echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc && source ~/.bashrc
+
+  --- Node (ts_ls / prettier 등 mason npm 도구에 필요, 최신 권장) ---
+  # Mint apt의 nodejs는 대개 너무 낡음 → NodeSource로 최신 설치:
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt install -y nodejs
+  node --version        # v18+ (되도록 v20+)
+
+  --- 확인 ---
+  gcc --version ; clang-format --version ; cmake --version
+  go version ; java -version   # java 17+ 확인
+  node --version ; npm --version ; python3 --version
+
+
+[3] nvim 설정 복사
+  원본 컴퓨터의  ~/.config/nvim/init.lua  파일 하나만 옮기면 된다
+  (플러그인·LSP·포맷터·키맵 전부 이 파일에 들어있음).
+
+  Mint에서:
+    mkdir -p ~/.config/nvim
+    # USB / scp / git 등으로 init.lua 를 ~/.config/nvim/init.lua 에 배치
+    # 예) scp 원본컴:~/.config/nvim/init.lua ~/.config/nvim/
+
+
+[4] 첫 실행 — 플러그인 & 도구 자동 설치
+  nvim
+  - vim.pack 이 플러그인을 github에서 clone (인터넷+git 필요)
+  - mason 이 LSP/포맷터 자동 설치:
+      clangd gopls jdtls typescript-language-server lua-language-server
+      eslint-lsp prettier prettierd stylua google-java-format goimports golangci-lint
+  - :Mason  으로 진행상황 확인 (몇 분 걸림, jdtls가 큼)
+  - 설치 끝나면 nvim 종료(:qa) 후 다시 실행
+
+
+[5] ts_ls (TypeScript) 주의 — 신형 TS7 이슈
+  typescript-language-server 는 classic tsserver.js 가 필요한데,
+  요즘 npm 기본 typescript 가 v7(네이티브)라 tsserver.js 가 없어서
+  단독 .ts 파일에서 자동완성이 안 뜰 수 있다.
+  → 그럴 때 mason 번들 TS를 5.x 로 고정:
+    npm --prefix ~/.local/share/nvim/mason/packages/typescript-language-server install typescript@5
+  (실제 TS 프로젝트는 자기 node_modules 의 TypeScript 를 쓰므로 대개 영향 없음.
+   나중에 :Mason 에서 이 서버를 업데이트하면 다시 v7로 돌아가니 그때 위 명령 재실행.)
+
+
+[6] 동작 확인
+  각 언어 파일을 열어 자동완성·진단이 뜨는지 본다:
+    nvim test.go / test.c / Main.java / test.ts / test.lua
+  진단 명령:
+    :checkhealth                 (전반 상태)
+    :Mason                       (도구 설치 상태)
+    :checkhealth vim.lsp         (LSP attach 확인)
+  주요 키:  grd 정의이동 · grr 참조 · grn 리네임 · gra 코드액션 · K 호버 · <Space>f 포맷
+  (전체 단축키는 같은 폴더의 nvim.txt 참고)
+
+
+[문제 해결]
+  - 플러그인 clone 실패        : 인터넷/git 확인, :qa 후 nvim 재실행
+  - mason 도구 설치 실패        : 해당 런타임 먼저 설치
+        gopls/goimports/golangci-lint → go 필요
+        jdtls / google-java-format    → java 17+ 필요
+        ts_ls / prettier / prettierd  → node 필요
+     설치 후  :MasonToolsInstall  또는 nvim 재시작
+  - clang-format 이 없다 하면    : sudo apt install -y clang-format
+  - 아이콘이 네모로 깨짐         : 기능엔 무관. 원하면 Nerd Font 설치 후
+                                   터미널 폰트로 지정 (예: fonts-firacode + Nerd Font 패치본)
+  - go/nvim 이 PATH에 없다       : /usr/local/bin, /usr/local/go/bin 을 PATH에 추가했는지 확인
+
+
+=======================================================================
+ 요약: [1] nvim 0.12+ tarball → [2] apt로 컴파일러/런타임(+NodeSource node,
+ Java17+, go) → [3] init.lua 복사 → [4] nvim 실행해 자동설치 →
+ [5] 필요시 ts_ls TS5 고정. 끝.
+=======================================================================
